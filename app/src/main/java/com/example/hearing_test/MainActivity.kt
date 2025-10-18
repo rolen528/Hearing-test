@@ -1,3 +1,4 @@
+package com.example.hearing_test
 import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioTrack
@@ -18,7 +19,7 @@ class MainActivity : AppCompatActivity() {
     private var currentFrequencyIndex = 0
     private var currentAmplitude = 1000 // 소리의 세기 (시작 값)
     private val maxAmplitude = 32767 // 최대 소리 세기 (Short.MAX_VALUE)
-    private val amplitudeStep = 1000 // 소리 조절 단계
+    private val amplitudeStep = 2000 // 소리 키우는 단계
 
     private var audioTrack: AudioTrack? = null
     private var isTesting = false
@@ -29,16 +30,13 @@ class MainActivity : AppCompatActivity() {
 
     // UI 요소
     private lateinit var statusTextView: TextView
-    private lateinit var currentVolumeTextView: TextView
     private lateinit var startButton: Button
     private lateinit var heardButton: Button
     private lateinit var resultTextView: TextView
-    private lateinit var increaseButton: Button
-    private lateinit var decreaseButton: Button
-    private lateinit var playSoundButton: Button
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // XML 레이아웃 대신 코드로 UI를 직접 생성합니다.
         setupUI()
     }
 
@@ -53,61 +51,7 @@ class MainActivity : AppCompatActivity() {
             text = "청력 테스트를 시작하려면 아래 버튼을 누르세요."
             textSize = 18f
             gravity = Gravity.CENTER
-            setPadding(0, 0, 0, 20)
-        }
-
-        currentVolumeTextView = TextView(this).apply {
-            text = "소리 세기: -"
-            textSize = 16f
-            gravity = Gravity.CENTER
-            setPadding(0, 20, 0, 20)
-        }
-
-        // --- 소리 조절 및 재생 버튼을 담을 가로 레이아웃 ---
-        val controlsLayout = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-            setPadding(0, 20, 0, 20)
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            )
-        }
-
-        decreaseButton = Button(this).apply {
-            text = "-"
-            isEnabled = false
-            setOnClickListener { decreaseVolume() }
-        }
-
-        playSoundButton = Button(this).apply {
-            text = "소리 재생"
-            isEnabled = false
-            setOnClickListener { playCurrentTone() }
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply {
-                marginEnd = 24
-                marginStart = 24
-            }
-        }
-
-        increaseButton = Button(this).apply {
-            text = "+"
-            isEnabled = false
-            setOnClickListener { increaseVolume() }
-        }
-
-        controlsLayout.addView(decreaseButton)
-        controlsLayout.addView(playSoundButton)
-        controlsLayout.addView(increaseButton)
-        // --- 여기까지 버튼 레이아웃 ---
-
-        heardButton = Button(this).apply {
-            text = "들려요 (다음 주파수)"
-            isEnabled = false
-            setOnClickListener { soundHeard() }
+            setPadding(0, 0, 0, 50)
         }
 
         startButton = Button(this).apply {
@@ -115,6 +59,16 @@ class MainActivity : AppCompatActivity() {
             setOnClickListener {
                 if (!isTesting) {
                     startTest()
+                }
+            }
+        }
+
+        heardButton = Button(this).apply {
+            text = "소리가 들려요"
+            isEnabled = false // 테스트 시작 전에는 비활성화
+            setOnClickListener {
+                if (isTesting) {
+                    soundHeard()
                 }
             }
         }
@@ -127,10 +81,8 @@ class MainActivity : AppCompatActivity() {
         }
 
         layout.addView(statusTextView)
-        layout.addView(currentVolumeTextView)
-        layout.addView(controlsLayout)
-        layout.addView(heardButton)
         layout.addView(startButton)
+        layout.addView(heardButton)
         layout.addView(resultTextView)
 
         setContentView(layout)
@@ -142,13 +94,8 @@ class MainActivity : AppCompatActivity() {
         hearingThresholds.clear()
         resultTextView.text = ""
         isTesting = true
-
-        startButton.isEnabled = false // 시작 버튼 비활성화
-        // 테스트용 컨트롤 활성화
+        startButton.isEnabled = false
         heardButton.isEnabled = true
-        playSoundButton.isEnabled = true
-        increaseButton.isEnabled = true
-        decreaseButton.isEnabled = true
 
         // 첫 번째 주파수 테스트 시작
         testNextFrequency()
@@ -158,48 +105,52 @@ class MainActivity : AppCompatActivity() {
         if (currentFrequencyIndex < testFrequencies.size) {
             currentAmplitude = 1000 // 각 주파수마다 소리 세기 초기화
             val frequency = testFrequencies[currentFrequencyIndex]
-            statusTextView.text = "${frequency}Hz 주파수를 테스트합니다.\n+, - 버튼으로 소리를 조절하고 '소리 재생'을 누르세요."
-            updateVolumeDisplay()
+            statusTextView.text = "${frequency}Hz 주파수를 테스트합니다.\n소리가 들리면 버튼을 눌러주세요."
+            playToneWithIncreasingAmplitude()
         } else {
             // 모든 테스트 완료
             finishTest()
         }
     }
 
-    private fun increaseVolume() {
-        if (currentAmplitude < maxAmplitude) {
-            currentAmplitude += amplitudeStep
-        }
-        updateVolumeDisplay()
-    }
+    private fun playToneWithIncreasingAmplitude() {
+        if (!isTesting) return
 
-    private fun decreaseVolume() {
-        if (currentAmplitude > 1000) { // 최소 세기보다 작아지지 않도록
-            currentAmplitude -= amplitudeStep
+        // 현재 소리 세기가 최대치를 넘으면, 들리지 않은 것으로 간주하고 다음 주파수로 이동
+        if (currentAmplitude > maxAmplitude) {
+            hearingThresholds[testFrequencies[currentFrequencyIndex]] = -1 // -1은 들리지 않음을 의미
+            currentFrequencyIndex++
+            testNextFrequency()
+            return
         }
-        updateVolumeDisplay()
-    }
 
-    private fun playCurrentTone() {
         playTone(testFrequencies[currentFrequencyIndex].toDouble(), currentAmplitude)
-        // 설정된 시간(toneDuration)만큼 재생 후 자동으로 소리 멈춤
+
+        // 1초 후에 소리를 멈추고, 잠시 후 다음 세기로 다시 재생
         Handler(Looper.getMainLooper()).postDelayed({
             stopTone()
+            currentAmplitude += amplitudeStep // 소리 세기 증가
+            if (isTesting) { // "들려요" 버튼이 눌리지 않았다면 계속 진행
+                Handler(Looper.getMainLooper()).postDelayed({
+                    playToneWithIncreasingAmplitude()
+                }, 500) // 0.5초 대기
+            }
         }, (toneDuration * 1000).toLong())
     }
 
-    private fun updateVolumeDisplay() {
-        currentVolumeTextView.text = "소리 세기: $currentAmplitude"
-    }
 
     private fun soundHeard() {
-        stopTone() // 혹시 재생 중인 소리가 있다면 정지
         val frequency = testFrequencies[currentFrequencyIndex]
         hearingThresholds[frequency] = currentAmplitude
+        isTesting = false // 현재 주파수의 자동 증가를 멈춤
+        stopTone()
 
         // 다음 주파수 테스트 준비
         currentFrequencyIndex++
-        testNextFrequency()
+        Handler(Looper.getMainLooper()).postDelayed({
+            isTesting = true
+            testNextFrequency()
+        }, 1000) // 1초 후 다음 테스트 시작
     }
 
     private fun finishTest() {
@@ -207,12 +158,8 @@ class MainActivity : AppCompatActivity() {
         startButton.isEnabled = true
         startButton.text = "다시 테스트"
         heardButton.isEnabled = false
-        playSoundButton.isEnabled = false
-        increaseButton.isEnabled = false
-        decreaseButton.isEnabled = false
 
         statusTextView.text = "테스트가 완료되었습니다."
-        currentVolumeTextView.text = "소리 세기: -"
 
         // 결과 분석 및 표시
         var resultText = "테스트 결과:\n"
@@ -220,10 +167,14 @@ class MainActivity : AppCompatActivity() {
         var lowestThreshold = Int.MAX_VALUE
 
         for ((freq, threshold) in hearingThresholds) {
-            resultText += "${freq}Hz: 세기 ${threshold}에서 감지\n"
-            if (threshold < lowestThreshold) {
-                lowestThreshold = threshold
-                bestFrequency = freq
+            if (threshold != -1) {
+                resultText += "${freq}Hz: 세기 ${threshold}에서 감지\n"
+                if (threshold < lowestThreshold) {
+                    lowestThreshold = threshold
+                    bestFrequency = freq
+                }
+            } else {
+                resultText += "${freq}Hz: 감지되지 않음\n"
             }
         }
 
@@ -296,4 +247,3 @@ class MainActivity : AppCompatActivity() {
         isTesting = false
     }
 }
-
